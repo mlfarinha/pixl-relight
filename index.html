@@ -1,207 +1,263 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
+  <meta name="description" content="PIXLRelight: Controllable Relighting via Intrinsic Conditioning.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PIXLRelight: Controllable Relighting via Intrinsic Conditioning</title>
-  <meta name="description" content="PIXLRelight: a feed-forward approach for physically controllable single-image relighting via intrinsic conditioning." />
 
-  <meta property="og:title" content="PIXLRelight" />
-  <meta property="og:description" content="Controllable Relighting via Intrinsic Conditioning." />
-  <meta property="og:type" content="website" />
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro|JetBrains+Mono"
+        rel="stylesheet">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap"
-    rel="stylesheet"
-  />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.1/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
 
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="./static/css/index.css">
 </head>
 
 <body>
-  <main class="page">
 
-    <!-- ============================================================
-         Title block
-         ============================================================ -->
-    <header class="title-block">
-      <h1 class="title">PIXLRelight</h1>
-      <p class="subtitle">Controllable Relighting via Intrinsic Conditioning</p>
+<!-- ==========================================================
+     Title block
+     ========================================================== -->
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">
+            <span class="dnerf">PIXLRelight</span>:
+          </h1>
+          <h1 class="title is-3 publication-subtitle">
+            Controllable Relighting via Intrinsic Conditioning
+          </h1>
 
-      <p class="authors">
-        <a class="author-link" href="https://mlfarinha.github.io/">Miguel Farinha</a>,
-        <a class="author-link" href="https://ronnie-clark.co.uk/">Ronald Clark</a>
-      </p>
-      <p class="affiliations">
-        PIXL, University of Oxford
-      </p>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <a href="https://mlfarinha.github.io/">Miguel Farinha</a>,
+            </span>
+            <span class="author-block">
+              <a href="https://ronnie-clark.co.uk/">Ronald Clark</a>
+            </span>
+          </div>
 
-      <nav class="links" aria-label="Resources">
-        <a class="link-pill" href="#" aria-label="Paper PDF">
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 2 4 4h-4V4ZM6 20V4h6v6h6v10H6Z"/>
-          </svg>
-          Paper
-        </a>
-        <a class="link-pill" href="#" aria-label="arXiv">
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z"/>
-          </svg>
-          arXiv
-        </a>
-        <a class="link-pill" href="#" aria-label="Code">
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4Zm5.2 0L19.2 12l-4.6-4.6L16 6l6 6-6 6-1.4-1.4Z"/>
-          </svg>
-          Code
-        </a>
-        <a class="link-pill" href="#cite" aria-label="BibTeX">
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M6 4h12v2H6V4Zm0 4h12v2H6V8Zm0 4h12v2H6v-2Zm0 4h8v2H6v-2Z"/>
-          </svg>
-          BibTeX
-        </a>
-      </nav>
-    </header>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">Perceptual Intelligence and Extended Reality Lab, University of Oxford</span>
+          </div>
 
-    <!-- ============================================================
-         Interactive demo
-         ============================================================ -->
-    <section class="demo-section" aria-labelledby="demo-heading">
-      <h2 id="demo-heading" class="section-heading">Move the light</h2>
-      <p class="section-lede">
-        Hover over the image to position a virtual light in the scene.
-        PIXLRelight renders the photograph under the resulting illumination
-        in real time. Switch the light type using the buttons below.
-      </p>
-
-      <div id="demo-mount" class="demo-mount" data-config="scenes_config.json">
-        <div class="demo-loading">Loading demo&hellip;</div>
-      </div>
-
-      <p class="demo-caption">
-        Move your cursor across the image to reposition the light.
-        Use the scene buttons to switch scenes, and the preset buttons
-        to switch between flash and spotlight.
-      </p>
-    </section>
-
-    <!-- ============================================================
-         Abstract
-         ============================================================ -->
-    <section class="prose-section" aria-labelledby="abstract-heading">
-      <h2 id="abstract-heading" class="section-heading">Abstract</h2>
-      <p class="abstract">
-        We present <span class="paper-name">PIXLRelight</span>, a feed-forward
-        approach for physically controllable single-image relighting. Existing
-        methods either provide limited lighting control (e.g.\ through text or
-        environment maps), accumulate errors when chaining inverse and forward
-        rendering, or require costly per-image optimization. Our key idea is to
-        bridge physically based rendering (PBR) and learned image synthesis
-        through a shared intrinsic conditioning that can be obtained from either
-        real photographs or PBR renders. At training time, paired
-        multi-illumination photographs are decomposed into albedo, diffuse
-        shading, and non-diffuse residuals, which condition the model. At
-        inference time, the same conditioning is computed from a path-traced
-        render of a coarse 3D reconstruction of the input under user-specified
-        PBR lights. A transformer-based neural renderer then applies the target
-        illumination to the source photograph, preserving fine image detail
-        through a per-pixel affine modulation.
-        <span class="paper-name">PIXLRelight</span> enables arbitrary PBR-style
-        lighting control, achieves state-of-the-art relighting quality, and
-        runs in under a tenth of a second per image.
-      </p>
-    </section>
-
-    <!-- ============================================================
-         Inference pipeline
-         ============================================================ -->
-    <section class="prose-section" aria-labelledby="inference-heading">
-      <h2 id="inference-heading" class="section-heading">Inference pipeline</h2>
-
-      <figure class="figure">
-        <div class="figure-placeholder" data-fname="figures/inference.png">
-          <span>figures/inference.png</span>
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <!-- Paper -->
+              <span class="link-block">
+                <a href="#" class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                    <i class="fas fa-file-pdf"></i>
+                  </span>
+                  <span>Paper</span>
+                </a>
+              </span>
+              <!-- arXiv -->
+              <span class="link-block">
+                <a href="#" class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                    <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>arXiv</span>
+                </a>
+              </span>
+              <!-- Code (coming soon) -->
+              <span class="link-block">
+                <a class="external-link button is-normal is-rounded is-dark is-disabled"
+                   aria-disabled="true"
+                   onclick="event.preventDefault();"
+                   tabindex="-1">
+                  <span class="icon">
+                    <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code (coming soon)</span>
+                </a>
+              </span>
+            </div>
+          </div>
         </div>
-        <figcaption class="caption">
-          <strong>Inference pipeline.</strong> Given a single input image,
-          geometry is recovered by Depth Anything 3 and unprojected to a
-          triangle mesh, and materials are recovered by Marigold-IID-Appearance.
-          The textured mesh is loaded into Blender, where the user authors the
-          desired illumination; Blender Cycles then renders the scene and
-          produces the target intrinsic maps <span class="math">C<sub>T</sub></span>.
-          <span class="paper-name">PIXLRelight</span> takes as input the
-          original image together with
-          <span class="math">C<sub>T</sub></span> and produces the final relit
-          prediction.
-        </figcaption>
-      </figure>
-    </section>
-
-    <!-- ============================================================
-         Training pipeline
-         ============================================================ -->
-    <section class="prose-section" aria-labelledby="training-heading">
-      <h2 id="training-heading" class="section-heading">Training pipeline</h2>
-
-      <figure class="figure">
-        <div class="figure-placeholder" data-fname="figures/training.png">
-          <span>figures/training.png</span>
-        </div>
-        <figcaption class="caption">
-          <strong>Training pipeline.</strong> The source image is patchified by
-          a ViT branch and the channel-wise concatenated target intrinsics
-          &mdash; extracted from the target image by a frozen
-          Marigold-IID-Lighting model &mdash; are patchified by a ConvNeXt
-          branch. The two token grids are fused per spatial location, projected
-          to a common dimension, and processed by a self-attention transformer
-          trunk. A DPT head reads out intermediate trunk features and predicts
-          a per-pixel affine modulation of the source. Training is supervised
-          end-to-end against the target image with pixel and perceptual losses.
-        </figcaption>
-      </figure>
-    </section>
-
-    <!-- ============================================================
-         Qualitative comparison
-         ============================================================ -->
-    <section class="prose-section comparison-section" aria-labelledby="comparison-heading">
-      <h2 id="comparison-heading" class="section-heading">Qualitative comparison</h2>
-      <p class="section-lede">
-        Drag the slider in each panel to compare our result against prior
-        work and a path-traced render. Use the buttons to change scene.
-      </p>
-
-      <div id="comparison-mount" class="comparison-mount" data-config="comparison_config.json">
-        <div class="demo-loading">Loading comparisons&hellip;</div>
       </div>
-    </section>
+    </div>
+  </div>
+</section>
 
-    <!-- ============================================================
-         BibTeX
-         ============================================================ -->
-    <section id="cite" class="prose-section" aria-labelledby="cite-heading">
-      <h2 id="cite-heading" class="section-heading">Citation</h2>
-      <pre class="bibtex"><code>@article{farinha2026pixlrelight,
+<!-- ==========================================================
+     Interactive demo
+     ========================================================== -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <div id="demo-mount" class="demo-mount" data-config="scenes_config.json">
+      <div class="demo-loading">Loading demo&hellip;</div>
+    </div>
+    <p class="demo-caption has-text-centered">
+      Move your cursor across the image to reposition the light.
+      Use the <strong>scene</strong> buttons to switch scenes, and the
+      <strong>light</strong> buttons to switch between flash and spotlight.
+    </p>
+  </div>
+</section>
+
+<!-- ==========================================================
+     Abstract
+     ========================================================== -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            We present <span class="dnerf">PIXLRelight</span>, a feed-forward
+            approach for physically controllable single-image relighting.
+            Existing methods either provide limited lighting control (for
+            example through text or environment maps), accumulate errors
+            when chaining inverse and forward rendering, or require costly
+            per-image optimization. Our key idea is to bridge physically
+            based rendering (PBR) and learned image synthesis through a
+            shared intrinsic conditioning that can be obtained from either
+            real photographs or PBR renders. At training time, paired
+            multi-illumination photographs are decomposed into albedo,
+            diffuse shading, and non-diffuse residuals, which condition the
+            model. At inference time, the same conditioning is computed
+            from a path-traced render of a coarse 3D reconstruction of the
+            input under user-specified PBR lights. A transformer-based
+            neural renderer then applies the target illumination to the
+            source photograph, preserving fine image detail through a
+            per-pixel affine modulation.
+            <span class="dnerf">PIXLRelight</span> enables arbitrary
+            PBR-style lighting control, achieves state-of-the-art relighting
+            quality, and runs in under a tenth of a second per image.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================
+     Inference pipeline
+     ========================================================== -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3 has-text-centered">Inference pipeline</h2>
+        <figure class="figure">
+          <img src="./figures/inference.png"
+               alt="Inference pipeline diagram"
+               class="figure-image">
+          <figcaption class="figure-caption">
+            <strong>Inference pipeline.</strong>
+            Given a single input image, geometry is recovered by Depth
+            Anything 3 and unprojected to a triangle mesh, and materials
+            are recovered by Marigold-IID-Appearance. The textured mesh is
+            loaded into Blender, where the user authors the desired
+            illumination; Blender Cycles then renders the scene and
+            produces the target intrinsic maps.
+            <span class="dnerf">PIXLRelight</span> takes as input the
+            original image together with the target intrinsic maps and
+            produces the final relit prediction.
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================
+     Training pipeline
+     ========================================================== -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3 has-text-centered">Training pipeline</h2>
+        <figure class="figure">
+          <img src="./figures/training.png"
+               alt="Training pipeline diagram"
+               class="figure-image">
+          <figcaption class="figure-caption">
+            <strong>Training pipeline.</strong>
+            The source image is patchified by a ViT branch and the
+            channel-wise concatenated target intrinsics &mdash; extracted
+            from the target image by a frozen Marigold-IID-Lighting model
+            &mdash; are patchified by a ConvNeXt branch. The two token
+            grids are fused per spatial location, projected to a common
+            dimension, and processed by a self-attention transformer trunk.
+            A DPT head reads out intermediate trunk features and predicts a
+            per-pixel affine modulation of the source. Training is
+            supervised end-to-end against the target image with pixel and
+            perceptual losses.
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================
+     Qualitative comparison
+     ========================================================== -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3 has-text-centered">Qualitative comparison</h2>
+        <div class="content has-text-justified">
+          <p>
+            Drag the slider in each panel to compare our result against
+            prior work and a path-traced render. Use the scene buttons to
+            change scene.
+          </p>
+        </div>
+        <div id="comparison-mount" class="comparison-mount" data-config="comparison_config.json">
+          <div class="demo-loading">Loading comparisons&hellip;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================
+     BibTeX
+     ========================================================== -->
+<section class="section" id="BibTeX">
+  <div class="container is-max-desktop content">
+    <h2 class="title">BibTeX</h2>
+    <pre><code>@article{farinha2026pixlrelight,
   title     = {PIXLRelight: Controllable Relighting via Intrinsic Conditioning},
   author    = {Farinha, Miguel and Clark, Ronald},
   booktitle = {arXiv preprint},
   year      = {2026}
 }</code></pre>
-    </section>
+  </div>
+</section>
 
-    <footer class="page-footer">
-      <p>
-        Page template inspired by
-        <a href="https://nerfies.github.io">Nerfies</a>.
-      </p>
-    </footer>
+<!-- ==========================================================
+     Footer
+     ========================================================== -->
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content has-text-centered">
+          <p>
+            Page template adapted from
+            <a href="https://nerfies.github.io">Nerfies</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
 
-  </main>
+<script src="./static/js/demo.js" defer></script>
+<script src="./static/js/comparison.js" defer></script>
 
-  <script src="demo.js" defer></script>
-  <script src="comparison.js" defer></script>
 </body>
 </html>

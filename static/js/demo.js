@@ -1,26 +1,16 @@
 /* ========================================================================
    PIXLRelight interactive demo.
 
-   Workflow:
-     1. Read scenes_config.json. Each entry names a scene_id + its preset
-        labels for the UI.
-     2. For each scene, fetch <outputs_root>/<scene_id>/meta.json for grid
-        dimensions and preset names.
-     3. Render the controls (scene thumbnails + preset buttons).
-     4. On mouse/touch over the image: map cursor (x, y) to grid cell
-        (u_idx, v_idx), snap to a path under the current preset, set the
-        <img> src.
+   Reads <site_root>/site_config.json for the assets URL prefix, then
+   <site_root>/scenes_config.json for the list of scenes. For each scene
+   fetches <assets_root>/<scene_id>/meta.json to learn the grid dimensions
+   and preset names. Renders the controls (scene thumbnails + light
+   buttons) and tracks pointer position over the image, snapping to the
+   nearest grid cell.
 
-   Preloading:
-     - When a (scene, preset) becomes active, eagerly prefetch a sparse
-       "skeleton" (every 4th cell) so the first hover always has a nearby
-       loaded image to fall back on.
-     - Beyond that, the browser cache fills as the user moves. Tested: on
-       a 32x32 grid, after a few seconds of hovering most cells are cached.
-
-   Touch:
-     - touchstart/touchmove drives the same hover-position logic. We set
-       a `.touch-active` class to keep the cursor ring visible.
+   Preloading: when a (scene, preset) becomes active we eagerly prefetch
+   a sparse "skeleton" (every 4th cell) so the first hover always has a
+   nearby loaded image. The browser cache fills as the user moves.
    ======================================================================== */
 
 (function () {
@@ -28,28 +18,20 @@
 
   // ============================================================
   // Configuration / paths
+  //
+  // Paths in this file are resolved relative to index.html, NOT this
+  // file. So `site_config.json` is just "site_config.json", and
+  // OUTPUTS_ROOT inherits the prefix declared in that config.
   // ============================================================
 
-  // OUTPUTS_ROOT is loaded from site_config.json at startup. Default value
-  // works for `python -m http.server` in the website/ parent directory; for
-  // deployment, edit site_config.json to point at your Hugging Face
-  // dataset's `resolve/main` URL.
-  let OUTPUTS_ROOT = "../web_assets";
+  let OUTPUTS_ROOT = "./web_assets";
 
-  // ============================================================
-  // Tiny utilities
-  // ============================================================
-
-  /** Fetch JSON with friendly error context. */
   async function fetchJSON(url) {
     const res = await fetch(url, { cache: "force-cache" });
-    if (!res.ok) {
-      throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
     return res.json();
   }
 
-  /** Clamp an integer into [lo, hi]. */
   function clampInt(n, lo, hi) {
     n = Math.round(n);
     if (n < lo) return lo;
@@ -57,24 +39,21 @@
     return n;
   }
 
-  /** Format `<root>/<scene_id>/<preset>/relit/<UU>_<VV>.jpg`. */
   function cellURL(sceneId, preset, u, v) {
     const uu = String(u).padStart(2, "0");
     const vv = String(v).padStart(2, "0");
     return `${OUTPUTS_ROOT}/${sceneId}/${preset}/relit/${uu}_${vv}.jpg`;
   }
 
-  /** Format `<root>/<scene_id>/source.jpg`. */
   function sourceURL(sceneId) {
     return `${OUTPUTS_ROOT}/${sceneId}/source.jpg`;
   }
 
-  /** Preload an image into the browser cache; resolve when loaded. */
   function preload(url) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => resolve(url);
-      img.onerror = () => resolve(null); // Don't reject — missing cells are OK.
+      img.onerror = () => resolve(null);
       img.src = url;
     });
   }
@@ -82,21 +61,12 @@
   // ============================================================
   // State
   // ============================================================
-
-  let scenesConfig = null;       // Loaded from scenes_config.json
-  let scenes = [];               // Per-scene state, populated below.
+  let scenesConfig = null;
+  let scenes = [];
   let currentSceneIdx = 0;
-  let currentPreset = null;      // preset name string
-
-  // Set of (sceneId, preset) we've already kicked off skeleton-preloading for.
+  let currentPreset = null;
   const skeletonPreloaded = new Set();
-
-  // Track in-flight image src so we don't reset to the same URL repeatedly.
   let currentSrc = null;
-
-  // ============================================================
-  // DOM mount
-  // ============================================================
 
   const mount = document.getElementById("demo-mount");
   if (!mount) {
@@ -105,19 +75,17 @@
   }
 
   async function bootstrap() {
-    // 1. Load the top-level site config (where assets live).
+    // 1. site_config.json — gives OUTPUTS_ROOT.
     try {
       const site = await fetchJSON("site_config.json");
       if (typeof site.assets_root === "string" && site.assets_root.length > 0) {
-        // Strip trailing slash so we can safely concat with "/<scene>/..."
         OUTPUTS_ROOT = site.assets_root.replace(/\/+$/, "");
       }
     } catch (err) {
-      // Non-fatal — fall back to the compiled-in default.
-      console.warn("site_config.json not loaded; using default assets_root:", err.message);
+      console.warn("site_config.json not loaded; using default:", err.message);
     }
 
-    // 2. Load the scenes list.
+    // 2. scenes_config.json — what to show.
     try {
       const configURL = mount.dataset.config || "scenes_config.json";
       scenesConfig = await fetchJSON(configURL);
@@ -129,7 +97,7 @@
       return;
     }
 
-    // For each scene, fetch its meta.json in parallel.
+    // 3. Per-scene meta.json (parallel fetch).
     try {
       scenes = await Promise.all(
         scenesConfig.scenes.map(async (entry) => {
@@ -142,10 +110,6 @@
             gridH: meta.grid.height,
             sourceW: meta.source_image ? meta.source_image.width : 940,
             sourceH: meta.source_image ? meta.source_image.height : 560,
-            // Map the user-facing preset labels to the actual directory names.
-            // scenes_config.json declares which presets to expose and what to
-            // call them in the UI; meta.json is the source of truth for which
-            // presets exist on disk.
             availablePresets: meta.presets.map((p) => p.name),
             presetUI: entry.presets || meta.presets.map((p) => ({
               name: p.name,
@@ -159,14 +123,8 @@
       return;
     }
 
-    // Filter any UI preset rows whose underlying preset isn't actually rendered
-    // for this scene. This keeps the buttons honest if you re-render with a
-    // smaller set of presets later.
     for (const s of scenes) {
       s.presetUI = s.presetUI.filter((p) => s.availablePresets.includes(p.name));
-      if (s.presetUI.length === 0) {
-        console.warn(`Scene ${s.id} has no UI presets after filtering`);
-      }
     }
 
     render();
@@ -183,17 +141,12 @@
   // ============================================================
   // Rendering
   // ============================================================
-
   function render() {
     mount.innerHTML = "";
 
-    // ---- The stage (image + cursor ring) ----
     const stage = document.createElement("div");
     stage.className = "demo-stage";
     stage.id = "demo-stage";
-    // Keep aspect ratio close to the first scene's source so the page
-    // doesn't reflow when switching scenes (they're all 940x560 in our
-    // pipeline, but be defensive).
     const firstScene = scenes[0];
     stage.style.aspectRatio = `${firstScene.sourceW} / ${firstScene.sourceH}`;
 
@@ -207,11 +160,9 @@
     ring.className = "cursor-ring";
     stage.appendChild(ring);
 
-    // ---- Controls ----
     const controls = document.createElement("div");
     controls.className = "demo-controls";
 
-    // Scene group (only show if more than one scene).
     if (scenes.length > 1) {
       const sceneGroup = document.createElement("div");
       sceneGroup.className = "demo-group";
@@ -236,15 +187,12 @@
       controls.appendChild(sceneGroup);
     }
 
-    // Preset group.
     const presetGroup = document.createElement("div");
     presetGroup.className = "demo-group";
     const presetLbl = document.createElement("span");
     presetLbl.className = "demo-group-label";
     presetLbl.textContent = "Light";
     presetGroup.appendChild(presetLbl);
-    // Buttons get rebuilt when the scene changes (in case presets differ
-    // between scenes), so just leave a placeholder span here for now.
     const presetButtonsHolder = document.createElement("span");
     presetButtonsHolder.id = "preset-buttons";
     presetGroup.appendChild(presetButtonsHolder);
@@ -253,31 +201,23 @@
     mount.appendChild(stage);
     mount.appendChild(controls);
 
-    // ---- Wire up input ----
     setupInput(stage, img, ring);
 
-    // Kick things off with scene 0, preset 0.
     selectScene(0);
   }
-
-  // ============================================================
-  // Scene / preset selection
-  // ============================================================
 
   function selectScene(idx) {
     if (idx < 0 || idx >= scenes.length) return;
     currentSceneIdx = idx;
     const scene = scenes[idx];
 
-    // Highlight the active scene thumbnail.
     document.querySelectorAll(".demo-btn.scene-btn").forEach((btn) => {
       btn.classList.toggle("active", Number(btn.dataset.idx) === idx);
     });
 
-    // Rebuild preset buttons.
     const holder = document.getElementById("preset-buttons");
     holder.innerHTML = "";
-    scene.presetUI.forEach((p, pi) => {
+    scene.presetUI.forEach((p) => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "demo-btn preset-btn";
@@ -287,8 +227,6 @@
       holder.appendChild(btn);
     });
 
-    // Default preset: keep the current one if this scene supports it,
-    // otherwise pick the first available.
     let preset = currentPreset;
     if (!scene.presetUI.some((p) => p.name === preset)) {
       preset = scene.presetUI[0] ? scene.presetUI[0].name : null;
@@ -301,18 +239,12 @@
     document.querySelectorAll(".demo-btn.preset-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.preset === name);
     });
-    // Show the center cell first.
     const scene = scenes[currentSceneIdx];
     const u = Math.floor(scene.gridW / 2);
     const v = Math.floor(scene.gridH / 2);
     setImageToCell(u, v);
-    // Kick off sparse skeleton prefetch for this (scene, preset).
     prefetchSkeleton(scene, name);
   }
-
-  // ============================================================
-  // Image swap on pointer move
-  // ============================================================
 
   function setImageToCell(u, v) {
     const scene = scenes[currentSceneIdx];
@@ -323,21 +255,15 @@
     if (img) img.src = url;
   }
 
-  // ============================================================
-  // Mouse / touch input
-  // ============================================================
-
   function setupInput(stage, img, ring) {
     function pointerToCell(clientX, clientY) {
       const rect = stage.getBoundingClientRect();
       let x = (clientX - rect.left) / rect.width;
       let y = (clientY - rect.top) / rect.height;
-      // Clamp into the rendered grid range, accounting for margin.
       const scene = scenes[currentSceneIdx];
       const m = scene.margin || 0.05;
       x = Math.max(m, Math.min(1 - m, x));
       y = Math.max(m, Math.min(1 - m, y));
-      // Map [m, 1-m] linearly to [0, gridW-1].
       const ux = (x - m) / (1 - 2 * m);
       const vy = (y - m) / (1 - 2 * m);
       return {
@@ -348,7 +274,6 @@
       };
     }
 
-    // throttle to once per animation frame
     let pending = null;
     function handlePointer(clientX, clientY) {
       pending = { x: clientX, y: clientY };
@@ -368,7 +293,6 @@
     stage.addEventListener("mousemove", (e) => handlePointer(e.clientX, e.clientY));
     stage.addEventListener("mouseleave", () => { pending = null; });
 
-    // Touch: drag-to-position.
     stage.addEventListener("touchstart", (e) => {
       stage.classList.add("touch-active");
       const t = e.touches[0];
@@ -379,23 +303,15 @@
       if (t) handlePointer(t.clientX, t.clientY);
     }, { passive: true });
     stage.addEventListener("touchend", () => {
-      // Keep showing the last position; just hide the ring.
       stage.classList.remove("touch-active");
     });
   }
-
-  // ============================================================
-  // Skeleton prefetch
-  // ============================================================
 
   function prefetchSkeleton(scene, preset) {
     const key = `${scene.id}::${preset}`;
     if (skeletonPreloaded.has(key)) return;
     skeletonPreloaded.add(key);
 
-    // Every 4th cell. For a 32x32 grid: 8 × 8 = 64 cells ≈ 200 MB.
-    // Could be tuned, but this gives the cursor "anchors" everywhere
-    // while remaining responsive on page load.
     const stride = 4;
     const urls = [];
     for (let u = 0; u < scene.gridW; u += stride) {
@@ -403,14 +319,8 @@
         urls.push(cellURL(scene.id, preset, u, v));
       }
     }
-    // Don't preload more than ~80 cells per scene to stay bandwidth-polite.
-    const capped = urls.slice(0, 80);
-    capped.forEach(preload);
+    urls.slice(0, 80).forEach(preload);
   }
-
-  // ============================================================
-  // Go
-  // ============================================================
 
   bootstrap();
 })();

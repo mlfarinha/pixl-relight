@@ -1,5 +1,5 @@
 {
-  "_comment": "Points at the HF dataset for production. For local dev, change to '../web_assets'.",
+  "_comment": "Top-level site config. `assets_root` is the URL prefix the website fetches scene grids, source thumbnails, and comparison images from. For local development, point it at `./web_assets`. For deployment, point it at your Hugging Face dataset's `resolve/main` URL. Trailing slash is stripped.",
 
-  "assets_root": "https://huggingface.co/datasets/mlfarinha/pixl-relight-assets/resolve/main"
+  "assets_root": "./web_assets"
 }
