@@ -18,11 +18,18 @@ body {
 
 /* The Nerfies/VGGT convention is small-caps for the paper name in running
    text. We also bold it so it visibly stands out from body prose — the
-   small-caps treatment alone is too subtle. */
-.dnerf {
+   small-caps treatment alone is too subtle.
+
+   The repeated class (`.dnerf.dnerf`) and the deeper-context selectors
+   bump specificity above Bulma's `.content p`/`.content` cascade,
+   which otherwise pins the weight back to 400 in the abstract block. */
+.dnerf,
+.dnerf.dnerf,
+.content .dnerf,
+.content p .dnerf {
   font-variant: small-caps;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
 }
 
 .publication-title {

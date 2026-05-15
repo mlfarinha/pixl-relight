@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PIXLRelight: Controllable Relighting via Intrinsic Conditioning</title>
 
-  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro|JetBrains+Mono"
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans:400,500,700|Noto+Sans:400,500,600,700|Castoro|JetBrains+Mono"
         rel="stylesheet">
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.1/css/bulma.min.css">
@@ -44,14 +44,19 @@
           </div>
 
           <div class="is-size-5 publication-authors">
-            <span class="author-block">PIXL, University of Oxford</span>
+            <span class="author-block">
+              <a href="https://pixl.cs.ox.ac.uk/">Perceptual Intelligence and Extended Reality Lab, University of Oxford</a>
+            </span>
           </div>
 
           <div class="column has-text-centered">
             <div class="publication-links">
               <!-- Paper -->
               <span class="link-block">
-                <a href="#" class="external-link button is-normal is-rounded is-dark">
+                <a href="./resources/preprint.pdf"
+                   target="_blank"
+                   rel="noopener"
+                   class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
                     <i class="fas fa-file-pdf"></i>
                   </span>
@@ -77,6 +82,15 @@
                     <i class="fab fa-github"></i>
                   </span>
                   <span>Code (coming soon)</span>
+                </a>
+              </span>
+              <!-- BibTeX (jumps to citation section at the bottom) -->
+              <span class="link-block">
+                <a href="#BibTeX" class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                    <i class="fas fa-quote-left"></i>
+                  </span>
+                  <span>BibTeX</span>
                 </a>
               </span>
             </div>
@@ -149,7 +163,7 @@
       <div class="column is-full-width">
         <h2 class="title is-3 has-text-centered">Inference pipeline</h2>
         <figure class="figure">
-          <img src="./static/images/inference.svg"
+          <img src="./resources/inference.svg"
                alt="Inference pipeline diagram"
                class="figure-image"
                loading="eager">
@@ -180,7 +194,7 @@
       <div class="column is-full-width">
         <h2 class="title is-3 has-text-centered">Training pipeline</h2>
         <figure class="figure">
-          <img src="./static/images/training.svg"
+          <img src="./resources/training.svg"
                alt="Training pipeline diagram"
                class="figure-image"
                loading="eager">
@@ -235,7 +249,7 @@
     <pre><code>@article{farinha2026pixlrelight,
   title     = {PIXLRelight: Controllable Relighting via Intrinsic Conditioning},
   author    = {Farinha, Miguel and Clark, Ronald},
-  booktitle = {arXiv preprint},
+  booktitle = {arXiv Preprint},
   year      = {2026}
 }</code></pre>
   </div>
