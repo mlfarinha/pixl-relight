@@ -1,0 +1,18 @@
+{
+  "_comment": "Configures the qualitative-comparison panel. Each scene's directory under web_assets/comparisons/<scene_id>/ must contain one JPG per baseline (named by `name` + .jpg) and one for `ours`. Order of `baselines` is the order of slider blocks shown for each scene.",
+
+  "scenes": [
+    { "scene_id": "7K_a6f8b9078ac5e4dd9f147048883f78433daf000dee30c90e3a2baf56ba6b7954_frame_00010_cool_side_flash", "label": "Scene 1" },
+    { "scene_id": "5K_bcc22d6880ecfd8728145851214b4a36fcdf85fca6cd7181440007bb7f3f0fff_frame_00001_warm_interior_sun", "label": "Scene 2" },
+    { "scene_id": "5K_17d6e295887fa7f55c9c704f6f529f0766ff3b4348d84a8d79630ce384df64f2_frame_00001_dim_overhead_spot", "label": "Scene 3" },
+    { "scene_id": "1K_5c9275e5b278530d7f12e2db2bd596f9c411157b4f36ce7058191d2b83350579_frame_00001_warm_overhead_flash", "label": "Scene 4" }
+  ],
+
+  "baselines": [
+    { "name": "ouroboros_relit", "label": "Ouroboros" },
+    { "name": "vrgbx_relit",     "label": "V-RGBX" },
+    { "name": "blender_relit",   "label": "Path Traced" }
+  ],
+
+  "ours": { "name": "ours_relit", "label": "Ours" }
+}

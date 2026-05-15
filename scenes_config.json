@@ -1,0 +1,46 @@
+{
+  "_comment": "Edit this file to choose which scenes appear in the demo and what the UI labels for each preset say. The order of `scenes` is the order of the thumbnail row. The order of `presets` inside each scene is the order of the light buttons. The `name` field must match the preset directory name on disk (warm_flash, cool_flash, narrow_spot, ...). The `label` field is what the user sees.",
+
+  "scenes": [
+    {
+      "scene_id": "4K_1dffb7832514c6575cb935f8b6ada862cb5cc722321db2d4e1ab299072e6f28c_frame_00050",
+      "label": "Scene 1",
+      "presets": [
+        { "name": "warm_flash",  "label": "Flash" },
+        { "name": "narrow_spot", "label": "Spotlight" }
+      ]
+    },
+    {
+      "scene_id": "4K_0deac59baf307caa334ebc4b068f73b248bbc3b684b92519be3d71bd64099cff_frame_00170",
+      "label": "Scene 2",
+      "presets": [
+        { "name": "warm_flash",  "label": "Flash" },
+        { "name": "narrow_spot", "label": "Spotlight" }
+      ]
+    },
+    {
+      "scene_id": "10K_b99ede7695c2271a83f8ad29cca12046286e7e2573de0fb315ea2fe596b1b21f_frame_00165",
+      "label": "Scene 3",
+      "presets": [
+        { "name": "warm_flash",  "label": "Flash" },
+        { "name": "narrow_spot", "label": "Spotlight" }
+      ]
+    },
+    {
+      "scene_id": "10K_cbc98249db44049f5411362174573c7fc5a9ca3b3f94e68cdb5fbdcf2defdebc_frame_00020",
+      "label": "Scene 4",
+      "presets": [
+        { "name": "warm_flash",  "label": "Flash" },
+        { "name": "narrow_spot", "label": "Spotlight" }
+      ]
+    },
+    {
+      "scene_id": "10K_d0aea83ce1179b4b2f2e43f7b8b936a9a1aa756c76cb2b5b9816e6065a5e7233_frame_00005",
+      "label": "Scene 5",
+      "presets": [
+        { "name": "warm_flash",  "label": "Flash" },
+        { "name": "narrow_spot", "label": "Spotlight" }
+      ]
+    }
+  ]
+}

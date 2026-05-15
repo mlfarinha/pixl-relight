@@ -1,0 +1,5 @@
+{
+  "_comment": "Points at the HF dataset for production. For local dev, change to '../web_assets'.",
+
+  "assets_root": "https://huggingface.co/datasets/mlfarinha/pixl-relight-assets/resolve/main"
+}

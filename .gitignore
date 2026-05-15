@@ -1,0 +1,13 @@
+blender_render.py
+checkpoints/
+cmds.txt
+comparisons/
+config/
+convert_outputs_to_web.py
+datasets/
+demo_presets.yaml
+make_demo_preview.py
+outputs/
+render_demo_grid.py
+src/
+web_assets/
