@@ -42,7 +42,7 @@ body {
   /* Override Bulma's default bottom margin on .title.is-1 so the
      subtitle sits directly beneath the paper name rather than feeling
      like a separate banner. */
-  margin-bottom: 0.5rem !important;
+  margin-bottom: 0.25rem !important;
   line-height: 1.05;
 }
 
