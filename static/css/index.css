@@ -1,6 +1,11 @@
 /* =========================================================
    VGGT/Nerfies-derived base
    ========================================================= */
+html {
+  /* Smooth scroll for anchor links like #BibTeX. */
+  scroll-behavior: smooth;
+}
+
 body {
   font-family: 'Noto Sans', sans-serif;
   font-size: 16px;
@@ -53,6 +58,22 @@ body {
 
 .publication-authors a:hover {
   text-decoration: underline;
+}
+
+/* Affiliation link styled as plain body text — the blue we use for
+   authors is too loud here. Keeping it clickable with a hover
+   underline preserves discoverability without competing with the
+   author names. The selector is intentionally more specific than
+   `.publication-authors a` so it wins despite the !important
+   color above. */
+.publication-authors a.affiliation-link {
+  color: inherit !important;
+  text-decoration: none;
+}
+.publication-authors a.affiliation-link:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 0.5px;
+  text-underline-offset: 3px;
 }
 
 .author-block {

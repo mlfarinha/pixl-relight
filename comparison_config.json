@@ -9,9 +9,9 @@
   ],
 
   "baselines": [
-    { "name": "ouroboros_relit", "label": "Ouroboros" },
+    { "name": "blender_relit",   "label": "Path Traced" },
     { "name": "vrgbx_relit",     "label": "V-RGBX" },
-    { "name": "blender_relit",   "label": "Path Traced" }
+    { "name": "ouroboros_relit", "label": "Ouroboros" }
   ],
 
   "ours": { "name": "ours_relit", "label": "Ours" }
