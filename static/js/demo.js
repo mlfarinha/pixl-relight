@@ -9,8 +9,18 @@
    nearest grid cell.
 
    Preloading: when a (scene, preset) becomes active we eagerly prefetch
-   a sparse "skeleton" (every 4th cell) so the first hover always has a
-   nearby loaded image. The browser cache fills as the user moves.
+   every cell in the background, ordered by distance from the user's
+   cursor so nearby cells land first. Concurrency is capped at the
+   browser's per-origin connection limit (~6). Stale prefetches are
+   cancelled when the user switches scene/preset.
+
+   Performance notes:
+   - Visible images use fetchPriority="high"; prefetch uses "low" so the
+     browser always serves the cell the user is looking at first.
+   - The cursor ring is updated synchronously on mousemove (transform-only,
+     no layout) so it tracks the pointer even when the image is decoding.
+   - Add `<link rel="preconnect" href="https://huggingface.co" crossorigin>`
+     to index.html so the TLS handshake doesn't block the first request.
    ======================================================================== */
 
 (function () {
@@ -27,14 +37,11 @@
   let OUTPUTS_ROOT = "./web_assets";
   // If true, immediately fetch every cell for the currently-active
   // (scene, preset) so motion is instant. ~80 MB per (scene, preset)
-  // combination — overrides the older "skeleton" prefetch. Configurable
-  // from site_config.json (key: `eager_preload_full`).
+  // combination. Configurable from site_config.json (key:
+  // `eager_preload_full`).
   let EAGER_PRELOAD_FULL = true;
 
   async function fetchJSON(url) {
-    // Default cache policy (respects server Cache-Control) so config
-    // edits are picked up without a hard browser refresh. Images use
-    // the browser's image cache via Image() — that's unaffected.
     const res = await fetch(url);
     if (!res.ok) throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
     return res.json();
@@ -57,9 +64,15 @@
     return `${OUTPUTS_ROOT}/${sceneId}/source.jpg`;
   }
 
+  // Low-priority preload used for the background prefetch sweep.
+  // Setting fetchPriority="low" means the browser will keep these
+  // requests behind any high-priority image (i.e. the cell the user
+  // is actually looking at), even when they share the connection pool.
   function preload(url) {
     return new Promise((resolve) => {
       const img = new Image();
+      img.decoding = "async";
+      img.fetchPriority = "low";
       img.onload = () => resolve(url);
       img.onerror = () => resolve(null);
       img.src = url;
@@ -73,8 +86,18 @@
   let scenes = [];
   let currentSceneIdx = 0;
   let currentPreset = null;
-  const preloadStarted = new Set();
+  // Tracks (scene, preset) combos whose background prefetch *finished*.
+  // We only short-circuit re-selection when prefetch is fully complete,
+  // not merely in flight — otherwise a quick toggle would skip the
+  // rest of the sweep.
+  const preloadCompleted = new Set();
   let currentSrc = null;
+
+  // Last pointer position (in stage-local coords). Used by the
+  // prefetcher to order cells by distance to the cursor, and by the
+  // ring updater.
+  let lastCursorU = null;
+  let lastCursorV = null;
 
   const mount = document.getElementById("demo-mount");
   if (!mount) {
@@ -116,8 +139,6 @@
           try {
             meta = await fetchJSON(`${OUTPUTS_ROOT}/${entry.scene_id}/meta.json`);
           } catch (err) {
-            // Re-throw with a more diagnostic message so the error in
-            // the page tells the user where to look.
             throw new Error(
               `Could not load scene "${entry.scene_id}" from "${OUTPUTS_ROOT}" ` +
               `(${err.message}). Check that scenes_config.json's scene_id ` +
@@ -176,11 +197,16 @@
     // is what the user sees; we load the next cell into the "back" and
     // wait for img.decode() before flipping. This avoids the half-paint
     // flash that direct `img.src = url` causes on cold cells.
+    //
+    // fetchPriority="high" on both buffers: whichever one is loading is
+    // the cell the user is actively viewing, and must beat any
+    // in-flight prefetch for the connection pool.
     const imgA = document.createElement("img");
     imgA.className = "demo-img demo-img-a";
     imgA.alt = "Relit photograph";
     imgA.draggable = false;
     imgA.decoding = "async";
+    imgA.fetchPriority = "high";
     stage.appendChild(imgA);
 
     const imgB = document.createElement("img");
@@ -188,12 +214,26 @@
     imgB.alt = "";
     imgB.draggable = false;
     imgB.decoding = "async";
+    imgB.fetchPriority = "high";
     imgB.style.opacity = "0";
     stage.appendChild(imgB);
 
     const ring = document.createElement("div");
     ring.className = "cursor-ring";
+    // Position with transform instead of left/top so updates skip
+    // layout and only touch the compositor.
+    ring.style.left = "0";
+    ring.style.top = "0";
+    ring.style.willChange = "transform, opacity";
+    ring.style.opacity = "0";
     stage.appendChild(ring);
+
+    // Lightweight progress chip shown during the first prefetch sweep
+    // of a (scene, preset). Hidden once the sweep completes.
+    const progress = document.createElement("div");
+    progress.className = "demo-progress";
+    progress.style.opacity = "0";
+    stage.appendChild(progress);
 
     const controls = document.createElement("div");
     controls.className = "demo-controls";
@@ -266,6 +306,10 @@
     if (!scene.presetUI.some((p) => p.name === preset)) {
       preset = scene.presetUI[0] ? scene.presetUI[0].name : null;
     }
+    // Force a fresh load — currentSrc may match a URL from a different
+    // scene with the same coords, and selectPreset's short-circuit
+    // would skip the swap.
+    currentSrc = null;
     if (preset) selectPreset(preset);
   }
 
@@ -275,10 +319,14 @@
       btn.classList.toggle("active", btn.dataset.preset === name);
     });
     const scene = scenes[currentSceneIdx];
-    const u = Math.floor(scene.gridW / 2);
-    const v = Math.floor(scene.gridH / 2);
+    const u = lastCursorU != null ? lastCursorU : Math.floor(scene.gridW / 2);
+    const v = lastCursorV != null ? lastCursorV : Math.floor(scene.gridH / 2);
+    currentSrc = null; // preset switch always means a new URL
     setImageToCell(u, v);
-    prefetchAllCells(scene, name);
+    // Defer the prefetch flood by one task so the high-priority visible
+    // cell gets a connection slot first. Without this, both requests
+    // start in the same microtask and the browser may interleave them.
+    setTimeout(() => prefetchAllCells(scene, name, u, v), 0);
   }
 
   // ============================================================
@@ -352,6 +400,15 @@
       };
     }
 
+    // Ring updates run synchronously on every mousemove. They're
+    // transform-only and don't trigger layout, so we don't need to
+    // throttle them — the result is that the ring stays glued to the
+    // cursor even when an image is decoding.
+    function updateRing(screenX, screenY) {
+      ring.style.transform = `translate3d(${screenX}px, ${screenY}px, 0)`;
+      ring.style.opacity = "1";
+    }
+
     let pending = null;
     function handlePointer(clientX, clientY) {
       pending = { x: clientX, y: clientY };
@@ -360,28 +417,47 @@
       requestAnimationFrame(() => {
         handlePointer.scheduled = false;
         if (!pending) return;
-        const { u, v, screenX, screenY } = pointerToCell(pending.x, pending.y);
+        const { u, v } = pointerToCell(pending.x, pending.y);
         pending = null;
+        lastCursorU = u;
+        lastCursorV = v;
         setImageToCell(u, v);
-        ring.style.left = screenX + "px";
-        ring.style.top = screenY + "px";
       });
     }
 
-    stage.addEventListener("mousemove", (e) => handlePointer(e.clientX, e.clientY));
-    stage.addEventListener("mouseleave", () => { pending = null; });
+    stage.addEventListener("mousemove", (e) => {
+      const rect = stage.getBoundingClientRect();
+      // Update the ring immediately — decoupled from the rAF-throttled
+      // image swap so the cursor never feels laggy.
+      updateRing(e.clientX - rect.left, e.clientY - rect.top);
+      handlePointer(e.clientX, e.clientY);
+    });
+    stage.addEventListener("mouseleave", () => {
+      pending = null;
+      ring.style.opacity = "0";
+    });
+    stage.addEventListener("mouseenter", () => {
+      ring.style.opacity = "1";
+    });
 
     stage.addEventListener("touchstart", (e) => {
       stage.classList.add("touch-active");
       const t = e.touches[0];
-      if (t) handlePointer(t.clientX, t.clientY);
+      if (!t) return;
+      const rect = stage.getBoundingClientRect();
+      updateRing(t.clientX - rect.left, t.clientY - rect.top);
+      handlePointer(t.clientX, t.clientY);
     }, { passive: true });
     stage.addEventListener("touchmove", (e) => {
       const t = e.touches[0];
-      if (t) handlePointer(t.clientX, t.clientY);
+      if (!t) return;
+      const rect = stage.getBoundingClientRect();
+      updateRing(t.clientX - rect.left, t.clientY - rect.top);
+      handlePointer(t.clientX, t.clientY);
     }, { passive: true });
     stage.addEventListener("touchend", () => {
       stage.classList.remove("touch-active");
+      ring.style.opacity = "0";
     });
   }
 
@@ -389,9 +465,9 @@
   // Preloading
   //
   // When a (scene, preset) becomes active we kick off background
-  // requests for every cell. The browser caches them, so once they're
-  // done the demo is fully instant — no per-cell network latency on
-  // hover.
+  // requests for every cell, ordered by distance from the user's
+  // cursor (or grid center if no cursor yet). The browser caches them,
+  // so once they're done the demo is fully instant.
   //
   // Cancellation: switching scenes or presets bumps `currentPrefetchToken`.
   // Each worker checks the token before issuing the next request and
@@ -402,14 +478,13 @@
   // hover requests wait behind them, which is felt as the demo
   // "freezing".
   //
-  // We also throttle concurrent in-flight requests with a small
-  // semaphore. Browsers cap at ~6 concurrent connections per origin
-  // anyway, so 6 keeps the pipe full without piling up.
+  // Concurrency: capped at the browser's per-origin connection limit
+  // (~6). Anything higher just queues at the network layer.
   // ============================================================
   const PRELOAD_CONCURRENCY = 6;
   let currentPrefetchToken = 0;
 
-  async function prefetchAllCells(scene, preset) {
+  async function prefetchAllCells(scene, preset, cursorU, cursorV) {
     if (!EAGER_PRELOAD_FULL) return;
 
     // Invalidate any previous prefetch — its workers will see this on
@@ -418,17 +493,33 @@
     const myToken = currentPrefetchToken;
 
     const key = `${scene.id}::${preset}`;
-    // If this exact (scene, preset) finished prefetching once, the
-    // browser cache already has every cell; no need to issue any
-    // requests at all.
-    if (preloadStarted.has(key)) return;
-    preloadStarted.add(key);
+    // Only short-circuit if the prefetch *completed* previously. If a
+    // prior sweep was cancelled, we want to resume.
+    if (preloadCompleted.has(key)) return;
 
-    const urls = [];
+    // Build a (distance-sorted) list of cells. Cells near the cursor
+    // are likely to be touched first, so they should be on the wire
+    // before the corners.
+    const cu = cursorU != null ? cursorU : Math.floor(scene.gridW / 2);
+    const cv = cursorV != null ? cursorV : Math.floor(scene.gridH / 2);
+    const cells = [];
     for (let u = 0; u < scene.gridW; u++) {
       for (let v = 0; v < scene.gridH; v++) {
-        urls.push(cellURL(scene.id, preset, u, v));
+        cells.push({ u, v });
       }
+    }
+    cells.sort((a, b) => {
+      const da = (a.u - cu) * (a.u - cu) + (a.v - cv) * (a.v - cv);
+      const db = (b.u - cu) * (b.u - cu) + (b.v - cv) * (b.v - cv);
+      return da - db;
+    });
+
+    const total = cells.length;
+    let completed = 0;
+    const progressEl = mount.querySelector(".demo-progress");
+    if (progressEl) {
+      progressEl.textContent = `Loading lighting… 0%`;
+      progressEl.style.opacity = "1";
     }
 
     let nextIdx = 0;
@@ -436,20 +527,33 @@
       while (true) {
         if (myToken !== currentPrefetchToken) return; // stale, abort
         const i = nextIdx++;
-        if (i >= urls.length) return;
-        await preload(urls[i]);
+        if (i >= cells.length) return;
+        const { u, v } = cells[i];
+        await preload(cellURL(scene.id, preset, u, v));
+        if (myToken !== currentPrefetchToken) return;
+        completed++;
+        if (progressEl && completed % 4 === 0) {
+          const pct = Math.floor((completed / total) * 100);
+          progressEl.textContent = `Loading lighting… ${pct}%`;
+        }
       }
     }
     const workers = [];
     for (let w = 0; w < PRELOAD_CONCURRENCY; w++) workers.push(worker());
     await Promise.all(workers);
 
-    // If we were aborted partway through, we already added `key` to
-    // `preloadStarted` — but the prefetch didn't actually finish.
-    // Remove it so a future re-selection of this (scene, preset) gets
-    // another chance to complete the preload.
-    if (myToken !== currentPrefetchToken) {
-      preloadStarted.delete(key);
+    // Only mark this (scene, preset) as fully cached if we weren't
+    // aborted partway through. Otherwise, a future re-selection should
+    // be free to resume.
+    if (myToken === currentPrefetchToken) {
+      preloadCompleted.add(key);
+      if (progressEl) {
+        progressEl.textContent = `Ready`;
+        // Fade out after a beat.
+        setTimeout(() => {
+          if (progressEl) progressEl.style.opacity = "0";
+        }, 600);
+      }
     }
   }
 
