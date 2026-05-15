@@ -42,7 +42,7 @@ body {
   /* Override Bulma's default bottom margin on .title.is-1 so the
      subtitle sits directly beneath the paper name rather than feeling
      like a separate banner. */
-  margin-bottom: 1.0rem !important;
+  margin-bottom: 0.5rem !important;
   line-height: 1.05;
 }
 
@@ -60,6 +60,14 @@ body {
 
 .publication-authors {
   font-family: 'Google Sans', sans-serif;
+}
+
+/* The subtitle ends snug against the author names. Adding a top margin
+   to the first .publication-authors row (immediately after the title
+   block) gives the authors visual separation. The :nth-of-type avoids
+   doubling the gap before the affiliation row. */
+.publication-subtitle + .publication-authors {
+  margin-top: 1.75rem;
 }
 
 .publication-authors a {

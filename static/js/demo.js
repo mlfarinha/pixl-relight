@@ -32,7 +32,10 @@
   let EAGER_PRELOAD_FULL = true;
 
   async function fetchJSON(url) {
-    const res = await fetch(url, { cache: "force-cache" });
+    // Default cache policy (respects server Cache-Control) so config
+    // edits are picked up without a hard browser refresh. Images use
+    // the browser's image cache via Image() — that's unaffected.
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
     return res.json();
   }

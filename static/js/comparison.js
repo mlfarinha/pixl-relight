@@ -23,7 +23,10 @@
   let currentSceneIdx = 0;
 
   async function fetchJSON(url) {
-    const res = await fetch(url, { cache: "force-cache" });
+    // Default cache policy (respects server Cache-Control) so config
+    // edits are picked up without a hard browser refresh. Images use
+    // force-cache separately — see the demo image preload path.
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
     return res.json();
   }
