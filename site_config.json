@@ -1,6 +1,4 @@
 {
-  "_comment": "Top-level site config. `assets_root` is the URL prefix the website fetches scene grids, source thumbnails, and comparison images from. For local development point at `./web_assets`; for deployment point at your Hugging Face dataset's `resolve/main` URL. `eager_preload_full` controls whether to immediately fetch every cell of the active (scene, preset) on selection so motion is instant: leaves the demo snappy at the cost of ~80 MB up-front per scene-preset combination. Set to false if reviewers are likely on metered connections.",
-
-  "assets_root": "./web_assets",
+  "assets_root": "https://huggingface.co/datasets/mlfarinha/pixl-relight-assets/resolve/main",
   "eager_preload_full": true
 }

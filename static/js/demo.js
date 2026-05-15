@@ -112,7 +112,18 @@
     try {
       scenes = await Promise.all(
         scenesConfig.scenes.map(async (entry) => {
-          const meta = await fetchJSON(`${OUTPUTS_ROOT}/${entry.scene_id}/meta.json`);
+          let meta;
+          try {
+            meta = await fetchJSON(`${OUTPUTS_ROOT}/${entry.scene_id}/meta.json`);
+          } catch (err) {
+            // Re-throw with a more diagnostic message so the error in
+            // the page tells the user where to look.
+            throw new Error(
+              `Could not load scene "${entry.scene_id}" from "${OUTPUTS_ROOT}" ` +
+              `(${err.message}). Check that scenes_config.json's scene_id ` +
+              `matches a directory under assets_root.`
+            );
+          }
           return {
             id: entry.scene_id,
             label: entry.label || entry.scene_id,

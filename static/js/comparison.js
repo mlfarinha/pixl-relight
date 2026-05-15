@@ -191,7 +191,7 @@
   }
 
   async function bootstrap() {
-    // Inherit assets_root from site_config.json.
+    // Inherit assets_root from site_config.json (same key the demo uses).
     try {
       const site = await fetchJSON("site_config.json");
       if (typeof site.assets_root === "string" && site.assets_root.length > 0) {
