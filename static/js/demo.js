@@ -25,6 +25,11 @@
   // ============================================================
 
   let OUTPUTS_ROOT = "./web_assets";
+  // If true, immediately fetch every cell for the currently-active
+  // (scene, preset) so motion is instant. ~80 MB per (scene, preset)
+  // combination — overrides the older "skeleton" prefetch. Configurable
+  // from site_config.json (key: `eager_preload_full`).
+  let EAGER_PRELOAD_FULL = true;
 
   async function fetchJSON(url) {
     const res = await fetch(url, { cache: "force-cache" });
@@ -65,7 +70,7 @@
   let scenes = [];
   let currentSceneIdx = 0;
   let currentPreset = null;
-  const skeletonPreloaded = new Set();
+  const preloadStarted = new Set();
   let currentSrc = null;
 
   const mount = document.getElementById("demo-mount");
@@ -80,6 +85,9 @@
       const site = await fetchJSON("site_config.json");
       if (typeof site.assets_root === "string" && site.assets_root.length > 0) {
         OUTPUTS_ROOT = site.assets_root.replace(/\/+$/, "");
+      }
+      if (typeof site.eager_preload_full === "boolean") {
+        EAGER_PRELOAD_FULL = site.eager_preload_full;
       }
     } catch (err) {
       console.warn("site_config.json not loaded; using default:", err.message);
@@ -150,11 +158,24 @@
     const firstScene = scenes[0];
     stage.style.aspectRatio = `${firstScene.sourceW} / ${firstScene.sourceH}`;
 
-    const img = document.createElement("img");
-    img.className = "demo-img";
-    img.alt = "Relit photograph";
-    img.draggable = false;
-    stage.appendChild(img);
+    // Double-buffered image swap: two <img> elements stacked. The "front"
+    // is what the user sees; we load the next cell into the "back" and
+    // wait for img.decode() before flipping. This avoids the half-paint
+    // flash that direct `img.src = url` causes on cold cells.
+    const imgA = document.createElement("img");
+    imgA.className = "demo-img demo-img-a";
+    imgA.alt = "Relit photograph";
+    imgA.draggable = false;
+    imgA.decoding = "async";
+    stage.appendChild(imgA);
+
+    const imgB = document.createElement("img");
+    imgB.className = "demo-img demo-img-b";
+    imgB.alt = "";
+    imgB.draggable = false;
+    imgB.decoding = "async";
+    imgB.style.opacity = "0";
+    stage.appendChild(imgB);
 
     const ring = document.createElement("div");
     ring.className = "cursor-ring";
@@ -201,7 +222,7 @@
     mount.appendChild(stage);
     mount.appendChild(controls);
 
-    setupInput(stage, img, ring);
+    setupInput(stage, ring);
 
     selectScene(0);
   }
@@ -243,19 +264,62 @@
     const u = Math.floor(scene.gridW / 2);
     const v = Math.floor(scene.gridH / 2);
     setImageToCell(u, v);
-    prefetchSkeleton(scene, name);
+    prefetchAllCells(scene, name);
   }
 
-  function setImageToCell(u, v) {
+  // ============================================================
+  // Double-buffered cell display
+  //
+  // The two <img> elements imgA and imgB are stacked in the DOM. At
+  // any moment, exactly one is the "front" (opacity 1) and the other
+  // is the "back" (opacity 0). To show a new cell:
+  //   1. Set back.src = url
+  //   2. await back.decode()  (rejects if image fails)
+  //   3. Flip the front/back roles via opacity
+  // The browser cache means warm cells decode in <5 ms, so the swap is
+  // imperceptible. Cold cells fetch + decode in ~150-400 ms; during
+  // that wait the front (last loaded) image keeps showing, so there's
+  // never a flash to blank.
+  //
+  // `latestRequested` lets us discard stale decode() callbacks: if the
+  // user moves the cursor faster than the network, only the most-recent
+  // cell ends up displayed.
+  // ============================================================
+  let frontIsA = true;
+  let latestRequested = null;
+
+  async function setImageToCell(u, v) {
     const scene = scenes[currentSceneIdx];
     const url = cellURL(scene.id, currentPreset, u, v);
     if (url === currentSrc) return;
     currentSrc = url;
-    const img = mount.querySelector(".demo-img");
-    if (img) img.src = url;
+    latestRequested = url;
+
+    const imgA = mount.querySelector(".demo-img-a");
+    const imgB = mount.querySelector(".demo-img-b");
+    if (!imgA || !imgB) return;
+
+    const back = frontIsA ? imgB : imgA;
+    const front = frontIsA ? imgA : imgB;
+
+    back.src = url;
+    try {
+      await back.decode();
+    } catch {
+      // Decode failed (404, network error, or a newer src superseded
+      // this one). Either way: don't flip.
+      return;
+    }
+    // Stale-result guard: a faster cursor move may already have queued
+    // a different URL. If so, leave the front alone.
+    if (latestRequested !== url) return;
+
+    back.style.opacity = "1";
+    front.style.opacity = "0";
+    frontIsA = !frontIsA;
   }
 
-  function setupInput(stage, img, ring) {
+  function setupInput(stage, ring) {
     function pointerToCell(clientX, clientY) {
       const rect = stage.getBoundingClientRect();
       let x = (clientX - rect.left) / rect.width;
@@ -307,19 +371,46 @@
     });
   }
 
-  function prefetchSkeleton(scene, preset) {
-    const key = `${scene.id}::${preset}`;
-    if (skeletonPreloaded.has(key)) return;
-    skeletonPreloaded.add(key);
+  // ============================================================
+  // Preloading
+  //
+  // When a (scene, preset) becomes active we kick off background
+  // requests for every cell. The browser caches them, so once they're
+  // done the demo is fully instant — no per-cell network latency on
+  // hover.
+  //
+  // We throttle concurrent in-flight requests with a small semaphore
+  // (default 8). Browsers cap at ~6 concurrent connections per origin
+  // anyway, so 8 keeps the pipe full without piling up.
+  // ============================================================
+  const PRELOAD_CONCURRENCY = 8;
 
-    const stride = 4;
+  async function prefetchAllCells(scene, preset) {
+    if (!EAGER_PRELOAD_FULL) return;
+
+    const key = `${scene.id}::${preset}`;
+    if (preloadStarted.has(key)) return;
+    preloadStarted.add(key);
+
     const urls = [];
-    for (let u = 0; u < scene.gridW; u += stride) {
-      for (let v = 0; v < scene.gridH; v += stride) {
+    for (let u = 0; u < scene.gridW; u++) {
+      for (let v = 0; v < scene.gridH; v++) {
         urls.push(cellURL(scene.id, preset, u, v));
       }
     }
-    urls.slice(0, 80).forEach(preload);
+
+    // Drive the queue with a fixed-size pool of workers.
+    let nextIdx = 0;
+    async function worker() {
+      while (true) {
+        const i = nextIdx++;
+        if (i >= urls.length) return;
+        await preload(urls[i]);
+      }
+    }
+    const workers = [];
+    for (let w = 0; w < PRELOAD_CONCURRENCY; w++) workers.push(worker());
+    await Promise.all(workers);
   }
 
   bootstrap();

@@ -16,11 +16,13 @@ body {
   margin-bottom: 5px;
 }
 
-/* The small-caps treatment Nerfies/VGGT use for the paper name in
-   running text. Keeping the name `.dnerf` so it matches the template
-   convention. */
+/* The Nerfies/VGGT convention is small-caps for the paper name in running
+   text. We also bold it so it visibly stands out from body prose — the
+   small-caps treatment alone is too subtle. */
 .dnerf {
   font-variant: small-caps;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .publication-title {
@@ -123,10 +125,20 @@ body {
   user-select: none;
   touch-action: none;
 }
+/* Double-buffered demo images: stacked, one always visible. We use
+   absolute positioning on imgB so it overlays imgA pixel-for-pixel.
+   opacity flips between them (transition: none to keep swaps instant). */
 .demo-stage img.demo-img {
   display: block;
   width: 100%;
   height: auto;
+  transition: none;
+}
+.demo-stage img.demo-img-b {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .cursor-ring {
