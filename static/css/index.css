@@ -39,13 +39,23 @@ body {
 
 .publication-title {
   font-family: 'Google Sans', sans-serif;
+  /* Override Bulma's default bottom margin on .title.is-1 so the
+     subtitle sits directly beneath the paper name rather than feeling
+     like a separate banner. */
+  margin-bottom: 0.5rem !important;
+  line-height: 1.05;
 }
 
 .publication-subtitle {
   font-family: 'Google Sans', sans-serif;
   color: #4a4a4a;
   font-weight: 400;
-  margin-top: 0.5rem;
+  /* Slightly tighter than Bulma's .title.is-3 default and pulled up
+     toward the paper name so the title block reads as one unit. */
+  font-size: 1.75rem;
+  line-height: 1.25;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 
 .publication-authors {
