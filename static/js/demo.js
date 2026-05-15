@@ -393,16 +393,34 @@
   // done the demo is fully instant — no per-cell network latency on
   // hover.
   //
-  // We throttle concurrent in-flight requests with a small semaphore
-  // (default 8). Browsers cap at ~6 concurrent connections per origin
-  // anyway, so 8 keeps the pipe full without piling up.
+  // Cancellation: switching scenes or presets bumps `currentPrefetchToken`.
+  // Each worker checks the token before issuing the next request and
+  // exits if its token is stale. This stops a backlog of in-flight
+  // requests for cells the user is no longer looking at — without that,
+  // rapidly clicking between presets piles up dozens of redundant
+  // requests and the browser's per-origin connection cap (~6) makes
+  // hover requests wait behind them, which is felt as the demo
+  // "freezing".
+  //
+  // We also throttle concurrent in-flight requests with a small
+  // semaphore. Browsers cap at ~6 concurrent connections per origin
+  // anyway, so 6 keeps the pipe full without piling up.
   // ============================================================
-  const PRELOAD_CONCURRENCY = 8;
+  const PRELOAD_CONCURRENCY = 6;
+  let currentPrefetchToken = 0;
 
   async function prefetchAllCells(scene, preset) {
     if (!EAGER_PRELOAD_FULL) return;
 
+    // Invalidate any previous prefetch — its workers will see this on
+    // their next iteration and exit.
+    currentPrefetchToken++;
+    const myToken = currentPrefetchToken;
+
     const key = `${scene.id}::${preset}`;
+    // If this exact (scene, preset) finished prefetching once, the
+    // browser cache already has every cell; no need to issue any
+    // requests at all.
     if (preloadStarted.has(key)) return;
     preloadStarted.add(key);
 
@@ -413,10 +431,10 @@
       }
     }
 
-    // Drive the queue with a fixed-size pool of workers.
     let nextIdx = 0;
     async function worker() {
       while (true) {
+        if (myToken !== currentPrefetchToken) return; // stale, abort
         const i = nextIdx++;
         if (i >= urls.length) return;
         await preload(urls[i]);
@@ -425,6 +443,14 @@
     const workers = [];
     for (let w = 0; w < PRELOAD_CONCURRENCY; w++) workers.push(worker());
     await Promise.all(workers);
+
+    // If we were aborted partway through, we already added `key` to
+    // `preloadStarted` — but the prefetch didn't actually finish.
+    // Remove it so a future re-selection of this (scene, preset) gets
+    // another chance to complete the preload.
+    if (myToken !== currentPrefetchToken) {
+      preloadStarted.delete(key);
+    }
   }
 
   bootstrap();
