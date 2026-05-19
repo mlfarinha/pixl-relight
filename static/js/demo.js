@@ -10,15 +10,24 @@
 
    Preloading: when a (scene, preset) becomes active we eagerly prefetch
    every cell in the background, ordered by distance from the user's
-   cursor so nearby cells land first. Concurrency is capped at the
-   browser's per-origin connection limit (~6). Stale prefetches are
-   cancelled when the user switches scene/preset.
+   cursor so nearby cells land first. Concurrency is capped; stale
+   prefetches are cancelled when the user switches scene/preset.
 
    Performance notes:
-   - Visible images use fetchPriority="high"; prefetch uses "low" so the
-     browser always serves the cell the user is looking at first.
-   - The cursor ring is updated synchronously on mousemove (transform-only,
-     no layout) so it tracks the pointer even when the image is decoding.
+   - Visible images use fetchPriority="high"; prefetch uses fetch() with
+     low priority so the browser always serves the visible cell first.
+   - Prefetch uses fetch() rather than new Image() to populate only the
+     HTTP cache. new Image() also decodes every prefetched JPEG into a
+     RGBA bitmap in Firefox's image cache, which causes massive memory
+     pressure and triggers eviction of the currently-displayed buffers
+     (manifesting as black flashes on hover).
+   - After decode() resolves we wait one rAF before flipping opacity:
+     in Firefox the bitmap is occasionally not yet handed to the
+     compositor when decode() returns, and flipping in the same
+     microtask shows a black frame.
+   - The cursor ring is updated synchronously on mousemove
+     (transform-only, no layout) so it tracks the pointer even when an
+     image is decoding.
    - Add `<link rel="preconnect" href="https://huggingface.co" crossorigin>`
      to index.html so the TLS handshake doesn't block the first request.
    ======================================================================== */
@@ -28,23 +37,41 @@
 
   // ============================================================
   // Configuration / paths
-  //
-  // Paths in this file are resolved relative to index.html, NOT this
-  // file. So `site_config.json` is just "site_config.json", and
-  // OUTPUTS_ROOT inherits the prefix declared in that config.
   // ============================================================
 
   let OUTPUTS_ROOT = "./web_assets";
-  // If true, immediately fetch every cell for the currently-active
-  // (scene, preset) so motion is instant. ~80 MB per (scene, preset)
-  // combination. Configurable from site_config.json (key:
-  // `eager_preload_full`).
   let EAGER_PRELOAD_FULL = true;
 
-  async function fetchJSON(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
-    return res.json();
+  // Retry policy for JSON fetches. HF's CDN occasionally returns 429
+  // under burst load; we honor Retry-After if present and back off
+  // exponentially otherwise.
+  async function fetchJSON(url, { maxRetries = 4 } = {}) {
+    let delay = 500;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (err) {
+        if (attempt === maxRetries) throw err;
+        await sleep(delay);
+        delay *= 2;
+        continue;
+      }
+      if (res.ok) return res.json();
+      if (res.status === 429 && attempt < maxRetries) {
+        const retryAfter = parseFloat(res.headers.get("Retry-After"));
+        const wait = Number.isFinite(retryAfter) ? retryAfter * 1000 : delay;
+        await sleep(wait);
+        delay *= 2;
+        continue;
+      }
+      throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
+    }
+    throw new Error(`fetch ${url} failed after ${maxRetries} retries`);
+  }
+
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
   }
 
   function clampInt(n, lo, hi) {
@@ -64,19 +91,26 @@
     return `${OUTPUTS_ROOT}/${sceneId}/source.jpg`;
   }
 
-  // Low-priority preload used for the background prefetch sweep.
-  // Setting fetchPriority="low" means the browser will keep these
-  // requests behind any high-priority image (i.e. the cell the user
-  // is actually looking at), even when they share the connection pool.
+  // Background prefetch via fetch() instead of new Image().
+  //
+  // Why fetch() and not Image(): new Image() forces the browser to
+  // decode each JPEG into a raw RGBA bitmap and hold it in its image
+  // cache. With hundreds of large prefetched JPEGs, Firefox's image
+  // cache balloons to hundreds of megabytes and starts evicting
+  // bitmaps -- including those of the two <img> elements we use for
+  // display, which then flash black on next paint. fetch() only
+  // populates the HTTP byte cache; the JPEG is decoded on demand by
+  // the <img> when it's actually displayed.
+  //
+  // mode "no-cors" lets us cache opaque responses without requiring
+  // CORS headers from the asset host. priority "low" is a hint that
+  // recent browsers honor; older browsers ignore it harmlessly.
   function preload(url) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.decoding = "async";
-      img.fetchPriority = "low";
-      img.onload = () => resolve(url);
-      img.onerror = () => resolve(null);
-      img.src = url;
-    });
+    return fetch(url, {
+      mode: "no-cors",
+      credentials: "omit",
+      priority: "low",
+    }).then(() => url, () => null);
   }
 
   // ============================================================
@@ -86,18 +120,17 @@
   let scenes = [];
   let currentSceneIdx = 0;
   let currentPreset = null;
-  // Tracks (scene, preset) combos whose background prefetch *finished*.
-  // We only short-circuit re-selection when prefetch is fully complete,
-  // not merely in flight — otherwise a quick toggle would skip the
-  // rest of the sweep.
   const preloadCompleted = new Set();
   let currentSrc = null;
 
-  // Last pointer position (in stage-local coords). Used by the
-  // prefetcher to order cells by distance to the cursor, and by the
-  // ring updater.
+  // Last pointer position (in stage-local cell coords).
   let lastCursorU = null;
   let lastCursorV = null;
+
+  // Last cell dispatched to setImageToCell. Lets us skip work when
+  // the cursor moves within the same cell.
+  let lastDispatchedU = null;
+  let lastDispatchedV = null;
 
   const mount = document.getElementById("demo-mount");
   if (!mount) {
@@ -106,7 +139,6 @@
   }
 
   async function bootstrap() {
-    // 1. site_config.json — gives OUTPUTS_ROOT.
     try {
       const site = await fetchJSON("site_config.json");
       if (typeof site.assets_root === "string" && site.assets_root.length > 0) {
@@ -119,7 +151,6 @@
       console.warn("site_config.json not loaded; using default:", err.message);
     }
 
-    // 2. scenes_config.json — what to show.
     try {
       const configURL = mount.dataset.config || "scenes_config.json";
       scenesConfig = await fetchJSON(configURL);
@@ -131,38 +162,39 @@
       return;
     }
 
-    // 3. Per-scene meta.json (parallel fetch).
-    try {
-      scenes = await Promise.all(
-        scenesConfig.scenes.map(async (entry) => {
-          let meta;
-          try {
-            meta = await fetchJSON(`${OUTPUTS_ROOT}/${entry.scene_id}/meta.json`);
-          } catch (err) {
-            throw new Error(
-              `Could not load scene "${entry.scene_id}" from "${OUTPUTS_ROOT}" ` +
-              `(${err.message}). Check that scenes_config.json's scene_id ` +
-              `matches a directory under assets_root.`
-            );
-          }
-          return {
-            id: entry.scene_id,
-            label: entry.label || entry.scene_id,
-            margin: meta.grid.margin || 0.05,
-            gridW: meta.grid.width,
-            gridH: meta.grid.height,
-            sourceW: meta.source_image ? meta.source_image.width : 940,
-            sourceH: meta.source_image ? meta.source_image.height : 560,
-            availablePresets: meta.presets.map((p) => p.name),
-            presetUI: entry.presets || meta.presets.map((p) => ({
-              name: p.name,
-              label: p.name,
-            })),
-          };
-        }),
+    // Per-scene meta.json. Use allSettled so a single 429 doesn't kill
+    // the entire demo -- the user still gets the scenes that loaded.
+    const results = await Promise.allSettled(
+      scenesConfig.scenes.map(async (entry) => {
+        const meta = await fetchJSON(`${OUTPUTS_ROOT}/${entry.scene_id}/meta.json`);
+        return {
+          id: entry.scene_id,
+          label: entry.label || entry.scene_id,
+          margin: meta.grid.margin || 0.05,
+          gridW: meta.grid.width,
+          gridH: meta.grid.height,
+          sourceW: meta.source_image ? meta.source_image.width : 940,
+          sourceH: meta.source_image ? meta.source_image.height : 560,
+          availablePresets: meta.presets.map((p) => p.name),
+          presetUI: entry.presets || meta.presets.map((p) => ({
+            name: p.name,
+            label: p.name,
+          })),
+        };
+      })
+    );
+    scenes = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length) {
+      console.warn(
+        `${failures.length} scene(s) failed to load:`,
+        failures.map((f) => f.reason && f.reason.message)
       );
-    } catch (err) {
-      showError(err.message);
+    }
+    if (scenes.length === 0) {
+      showError(
+        "No scenes loaded. The asset host may be rate-limiting; try refreshing in a moment."
+      );
       return;
     }
 
@@ -193,14 +225,6 @@
     const firstScene = scenes[0];
     stage.style.aspectRatio = `${firstScene.sourceW} / ${firstScene.sourceH}`;
 
-    // Double-buffered image swap: two <img> elements stacked. The "front"
-    // is what the user sees; we load the next cell into the "back" and
-    // wait for img.decode() before flipping. This avoids the half-paint
-    // flash that direct `img.src = url` causes on cold cells.
-    //
-    // fetchPriority="high" on both buffers: whichever one is loading is
-    // the cell the user is actively viewing, and must beat any
-    // in-flight prefetch for the connection pool.
     const imgA = document.createElement("img");
     imgA.className = "demo-img demo-img-a";
     imgA.alt = "Relit photograph";
@@ -220,16 +244,12 @@
 
     const ring = document.createElement("div");
     ring.className = "cursor-ring";
-    // Position with transform instead of left/top so updates skip
-    // layout and only touch the compositor.
     ring.style.left = "0";
     ring.style.top = "0";
     ring.style.willChange = "transform, opacity";
     ring.style.opacity = "0";
     stage.appendChild(ring);
 
-    // Lightweight progress chip shown during the first prefetch sweep
-    // of a (scene, preset). Hidden once the sweep completes.
     const progress = document.createElement("div");
     progress.className = "demo-progress";
     progress.style.opacity = "0";
@@ -306,10 +326,9 @@
     if (!scene.presetUI.some((p) => p.name === preset)) {
       preset = scene.presetUI[0] ? scene.presetUI[0].name : null;
     }
-    // Force a fresh load — currentSrc may match a URL from a different
-    // scene with the same coords, and selectPreset's short-circuit
-    // would skip the swap.
     currentSrc = null;
+    lastDispatchedU = null;
+    lastDispatchedV = null;
     if (preset) selectPreset(preset);
   }
 
@@ -321,34 +340,41 @@
     const scene = scenes[currentSceneIdx];
     const u = lastCursorU != null ? lastCursorU : Math.floor(scene.gridW / 2);
     const v = lastCursorV != null ? lastCursorV : Math.floor(scene.gridH / 2);
-    currentSrc = null; // preset switch always means a new URL
+    currentSrc = null;
+    lastDispatchedU = null;
+    lastDispatchedV = null;
     setImageToCell(u, v);
     // Defer the prefetch flood by one task so the high-priority visible
-    // cell gets a connection slot first. Without this, both requests
-    // start in the same microtask and the browser may interleave them.
+    // cell gets a connection slot first.
     setTimeout(() => prefetchAllCells(scene, name, u, v), 0);
   }
 
   // ============================================================
   // Double-buffered cell display
   //
-  // The two <img> elements imgA and imgB are stacked in the DOM. At
-  // any moment, exactly one is the "front" (opacity 1) and the other
-  // is the "back" (opacity 0). To show a new cell:
+  // The two <img> elements imgA and imgB are stacked. At any moment,
+  // exactly one is the "front" (opacity 1) and the other is the "back"
+  // (opacity 0). To show a new cell:
   //   1. Set back.src = url
-  //   2. await back.decode()  (rejects if image fails)
-  //   3. Flip the front/back roles via opacity
-  // The browser cache means warm cells decode in <5 ms, so the swap is
-  // imperceptible. Cold cells fetch + decode in ~150-400 ms; during
-  // that wait the front (last loaded) image keeps showing, so there's
-  // never a flash to blank.
-  //
-  // `latestRequested` lets us discard stale decode() callbacks: if the
-  // user moves the cursor faster than the network, only the most-recent
-  // cell ends up displayed.
+  //   2. await back.decode() (with a timeout fallback)
+  //   3. Wait one rAF so the decoded bitmap is compositor-ready
+  //      (Firefox sometimes resolves decode() slightly early)
+  //   4. Flip the front/back roles via opacity
   // ============================================================
   let frontIsA = true;
   let latestRequested = null;
+  const DECODE_TIMEOUT_MS = 2000;
+
+  function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  function decodeWithTimeout(img) {
+    return Promise.race([
+      img.decode().then(() => "ok", () => "error"),
+      sleep(DECODE_TIMEOUT_MS).then(() => "timeout"),
+    ]);
+  }
 
   async function setImageToCell(u, v) {
     const scene = scenes[currentSceneIdx];
@@ -365,16 +391,24 @@
     const front = frontIsA ? imgA : imgB;
 
     back.src = url;
-    try {
-      await back.decode();
-    } catch {
-      // Decode failed (404, network error, or a newer src superseded
-      // this one). Either way: don't flip.
-      return;
-    }
+    const status = await decodeWithTimeout(back);
+
     // Stale-result guard: a faster cursor move may already have queued
     // a different URL. If so, leave the front alone.
     if (latestRequested !== url) return;
+    // Hard failure: decode rejected (404 / bad bytes). Don't flip;
+    // the user keeps seeing the previous cell.
+    if (status === "error") return;
+
+    // Firefox safety: give the compositor one frame to bind the
+    // decoded bitmap before we make it visible. Without this, the
+    // very first frame after the opacity flip can be black.
+    await nextFrame();
+    if (latestRequested !== url) return;
+
+    // Defensive: the image element should have valid dimensions now.
+    // If not (decode timed out and bytes weren't really ready), skip.
+    if (!back.complete || back.naturalWidth === 0) return;
 
     back.style.opacity = "1";
     front.style.opacity = "0";
@@ -400,10 +434,6 @@
       };
     }
 
-    // Ring updates run synchronously on every mousemove. They're
-    // transform-only and don't trigger layout, so we don't need to
-    // throttle them — the result is that the ring stays glued to the
-    // cursor even when an image is decoding.
     function updateRing(screenX, screenY) {
       ring.style.transform = `translate3d(${screenX}px, ${screenY}px, 0)`;
       ring.style.opacity = "1";
@@ -421,14 +451,19 @@
         pending = null;
         lastCursorU = u;
         lastCursorV = v;
+        // Skip the dispatch if the cursor hasn't crossed a cell
+        // boundary. Every sub-pixel mouse jiggle would otherwise
+        // schedule redundant work that piles up under Firefox's
+        // slower image pipeline.
+        if (u === lastDispatchedU && v === lastDispatchedV) return;
+        lastDispatchedU = u;
+        lastDispatchedV = v;
         setImageToCell(u, v);
       });
     }
 
     stage.addEventListener("mousemove", (e) => {
       const rect = stage.getBoundingClientRect();
-      // Update the ring immediately — decoupled from the rAF-throttled
-      // image swap so the cursor never feels laggy.
       updateRing(e.clientX - rect.left, e.clientY - rect.top);
       handlePointer(e.clientX, e.clientY);
     });
@@ -466,40 +501,26 @@
   //
   // When a (scene, preset) becomes active we kick off background
   // requests for every cell, ordered by distance from the user's
-  // cursor (or grid center if no cursor yet). The browser caches them,
-  // so once they're done the demo is fully instant.
+  // cursor (or grid center if no cursor yet). The browser caches them
+  // in its HTTP cache, so once they're done the demo is fully instant.
   //
-  // Cancellation: switching scenes or presets bumps `currentPrefetchToken`.
-  // Each worker checks the token before issuing the next request and
-  // exits if its token is stale. This stops a backlog of in-flight
-  // requests for cells the user is no longer looking at — without that,
-  // rapidly clicking between presets piles up dozens of redundant
-  // requests and the browser's per-origin connection cap (~6) makes
-  // hover requests wait behind them, which is felt as the demo
-  // "freezing".
-  //
-  // Concurrency: capped at the browser's per-origin connection limit
-  // (~6). Anything higher just queues at the network layer.
+  // Concurrency: 4 keeps the network busy without saturating Firefox's
+  // image decoder. Browsers cap at ~6 concurrent connections per
+  // origin, but Firefox's decoder is more sensitive than Chrome's to
+  // many simultaneous loads when display is also happening.
   // ============================================================
-  const PRELOAD_CONCURRENCY = 6;
+  const PRELOAD_CONCURRENCY = 4;
   let currentPrefetchToken = 0;
 
   async function prefetchAllCells(scene, preset, cursorU, cursorV) {
     if (!EAGER_PRELOAD_FULL) return;
 
-    // Invalidate any previous prefetch — its workers will see this on
-    // their next iteration and exit.
     currentPrefetchToken++;
     const myToken = currentPrefetchToken;
 
     const key = `${scene.id}::${preset}`;
-    // Only short-circuit if the prefetch *completed* previously. If a
-    // prior sweep was cancelled, we want to resume.
     if (preloadCompleted.has(key)) return;
 
-    // Build a (distance-sorted) list of cells. Cells near the cursor
-    // are likely to be touched first, so they should be on the wire
-    // before the corners.
     const cu = cursorU != null ? cursorU : Math.floor(scene.gridW / 2);
     const cv = cursorV != null ? cursorV : Math.floor(scene.gridH / 2);
     const cells = [];
@@ -518,14 +539,14 @@
     let completed = 0;
     const progressEl = mount.querySelector(".demo-progress");
     if (progressEl) {
-      progressEl.textContent = `Loading lighting… 0%`;
+      progressEl.textContent = "Loading lighting… 0%";
       progressEl.style.opacity = "1";
     }
 
     let nextIdx = 0;
     async function worker() {
       while (true) {
-        if (myToken !== currentPrefetchToken) return; // stale, abort
+        if (myToken !== currentPrefetchToken) return;
         const i = nextIdx++;
         if (i >= cells.length) return;
         const { u, v } = cells[i];
@@ -542,14 +563,10 @@
     for (let w = 0; w < PRELOAD_CONCURRENCY; w++) workers.push(worker());
     await Promise.all(workers);
 
-    // Only mark this (scene, preset) as fully cached if we weren't
-    // aborted partway through. Otherwise, a future re-selection should
-    // be free to resume.
     if (myToken === currentPrefetchToken) {
       preloadCompleted.add(key);
       if (progressEl) {
-        progressEl.textContent = `Ready`;
-        // Fade out after a beat.
+        progressEl.textContent = "Ready";
         setTimeout(() => {
           if (progressEl) progressEl.style.opacity = "0";
         }, 600);
