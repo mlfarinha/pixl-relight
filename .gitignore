@@ -7,6 +7,7 @@ convert_outputs_to_web.py
 datasets/
 demo_presets.yaml
 make_demo_preview.py
+make_hero_video.py
 outputs/
 render_demo_grid.py
 src/
